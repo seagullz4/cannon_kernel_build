@@ -55,7 +55,7 @@ build_kernel() {
 
     if [ -n "$SUKI_MODE" ]; then
         echo "设置 KernelSU (v0.9.5)..."
-        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh" | bash -s v0.9.5
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s legacy
         echo "✅ KernelSU 设置完成"
     fi
 
