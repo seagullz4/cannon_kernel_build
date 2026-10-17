@@ -235,7 +235,7 @@ jobs:
         run: |
           set -ex
           wget -q --timeout=30 --tries=3 -O /cannon/KernelSU.apk \
-            "https://github.com/tiann/KernelSU/releases/download/v0.9.5/KernelSU_v0.9.5_11872-release.apk"
+            "https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.2/KernelSU_Next_v3.4.2_33355-release.apk"
           ls -la /cannon/KernelSU.apk
 
       - name: 生成 Release Tag
@@ -252,7 +252,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           release_name: "Cannon Kernel by GinHalion - ${{ steps.tag.outputs.tag }}"
           body: |
-            Stock | KernelSU v0.9.5 LKM + Manager APK
+            Stock | KernelSU-Next legacy + Manager APK
             
             构建环境: Ubuntu 22.04
             

@@ -22,14 +22,14 @@ ccache -z > /dev/null 2>&1 || true
 ccache -M 50G > /dev/null 2>&1 || true
 
 # ============================================
-# 清理 SukiSU 残留
+# 清理 SukiSU / KernelSU 残留
 # ============================================
 clean_sukisu() {
     cd "$KERNEL"
-    rm -rf SukiSU-Ultra KernelSU
-    [ -L drivers/kernelsu ] && rm drivers/kernelsu
+    rm -rf SukiSU-Ultra KernelSU KernelSU-Next
+    [ -L drivers/kernelsu ] && rm -f drivers/kernelsu
     grep -q "kernelsu" drivers/Makefile 2>/dev/null && sed -i '/kernelsu/d' drivers/Makefile || true
-    grep -q "kernelsu" drivers/Kconfig 2>/dev/null && sed -i '/kernelsu/d' drivers/Kconfig || true
+    grep -q "kernelsu" drivers/Kconfig 2>/dev/null && sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig || true
 }
 
 # ============================================
@@ -54,9 +54,9 @@ build_kernel() {
     clean_sukisu
 
     if [ -n "$SUKI_MODE" ]; then
-        echo "设置 KernelSU (v0.9.5)..."
+        echo "设置 KernelSU-Next (legacy)..."
         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s legacy
-        echo "✅ KernelSU 设置完成"
+        echo "✅ KernelSU-Next 设置完成"
     fi
 
     rm -rf "$OUT_DIR"
@@ -67,13 +67,16 @@ build_kernel() {
         echo "❌ defconfig 失败"
         exit 1
     fi
-    if [ -n "$SUKI_MODE" ] && grep -q "CONFIG_KSU" "$OUT_DIR/.config" 2>/dev/null; then
+    if [ -n "$SUKI_MODE" ]; then
+        "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KSU
         "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KPROBES
+        "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KRETPROBES
+        "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KPROBE_EVENTS
+        "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KSU_KPROBES_HOOK
         "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable OVERLAY_FS
         "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KALLSYMS
         "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KALLSYMS_ALL
-        "$KERNEL/scripts/config" --file "$OUT_DIR/.config" --enable KSU
-        echo "✅ CONFIG_KSU=y + KPROBES + OVERLAY_FS + KALLSYMS_ALL 已确认"
+        echo "✅ CONFIG_KSU=y + KPROBES + KRETPROBES + OVERLAY_FS + KALLSYMS_ALL 已确认"
     fi
     if ! make -C "$KERNEL" O="$OUT_DIR" $COMMON_ARGS CC="ccache clang" olddefconfig > /dev/null; then
         echo "❌ olddefconfig 失败"
