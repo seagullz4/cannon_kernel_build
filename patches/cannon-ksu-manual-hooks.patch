@@ -26,7 +26,7 @@ index 28af714..89ff616 100644
  		add_input_randomness(type, code, value);
  
 diff --git a/fs/exec.c b/fs/exec.c
-index ae0a495..90e1794 100644
+index ae0a495..f656dea 100644
 --- a/fs/exec.c
 +++ b/fs/exec.c
 @@ -1709,6 +1709,13 @@ static int exec_binprm(struct linux_binprm *bprm)
@@ -43,20 +43,14 @@ index ae0a495..90e1794 100644
  static int do_execveat_common(int fd, struct filename *filename,
  			      struct user_arg_ptr argv,
  			      struct user_arg_ptr envp,
-@@ -1723,6 +1730,18 @@ static int do_execveat_common(int fd, struct filename *filename,
+@@ -1723,6 +1730,12 @@ static int do_execveat_common(int fd, struct filename *filename,
  	if (IS_ERR(filename))
  		return PTR_ERR(filename);
  
 +#ifdef CONFIG_KSU
 +	ksu_handle_execveat_ksud(&fd, &filename, &argv, &envp, &flags);
-+	/* sucompat's log collector expects a native argv array, not its wrapper. */
-+#ifdef CONFIG_COMPAT
-+	ksu_handle_execveat_sucompat(&fd, &filename,
-+		argv.is_compat ? NULL : (void *)argv.ptr.native, NULL, &flags);
-+#else
-+	ksu_handle_execveat_sucompat(&fd, &filename,
-+		(void *)argv.ptr.native, NULL, &flags);
-+#endif
++	/* The optional sucompat log argument must not point to userspace. */
++	ksu_handle_execveat_sucompat(&fd, &filename, NULL, NULL, &flags);
 +#endif
 +
  	/*
@@ -193,4 +187,3 @@ index 2946ed1..5b0d3be 100644
  	/* We only trust the superuser with rebooting the system. */
  	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
  		return -EPERM;
-
