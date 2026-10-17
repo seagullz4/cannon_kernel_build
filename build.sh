@@ -57,6 +57,19 @@ if [[ $VARIANT == ksu ]]; then
             die "Unexpected CONFIG_$config in manual built-in configuration"
         fi
     done
+
+    # Upstream Kbuild edits fs/namespace.c, seccomp.h and SELinux headers while
+    # being parsed. Run that pass BEFORE parallel compilation: otherwise fs/
+    # can already be built when drivers/kernelsu/ adds path_umount, and shared
+    # headers can change after other translation units have consumed them.
+    make -f "$KERNEL_DIR/KernelSU-Next/kernel/Kbuild" \
+        --eval='.PHONY: ksu-backports' --eval='ksu-backports: ; @:' \
+        "srctree=$KERNEL_DIR" "objtree=$OUT_DIR" src=drivers/kernelsu \
+        CONFIG_KSU=y CONFIG_KSU_MANUAL_HOOK=y ksu-backports \
+        2>&1 | tee "$LOG_DIR/ksu-backports.log"
+    grep -q '^int path_umount(' "$KERNEL_DIR/fs/namespace.c" || die 'path_umount backport was not applied'
+    grep -q 'atomic_t filter_count;' "$KERNEL_DIR/include/linux/seccomp.h" || die 'seccomp backport was not applied'
+    git -C "$KERNEL_DIR" diff --binary > "$LOG_DIR/ksu-effective-source.patch"
 fi
 
 JOBS=${JOBS:-$(nproc)}
@@ -70,7 +83,7 @@ IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz"
 gzip -t "$IMAGE"
 if [[ $VARIANT == ksu ]]; then
     aarch64-linux-android-nm "$OUT_DIR/vmlinux" > "$LOG_DIR/ksu-symbols.txt"
-    for symbol in kernelsu_init ksu_handle_sys_reboot ksu_handle_execveat_ksud \
+    for symbol in kernelsu_init path_umount ksu_handle_sys_reboot ksu_handle_execveat_ksud \
         ksu_handle_execveat_sucompat ksu_handle_vfs_read ksu_handle_newfstat_ret \
         ksu_handle_stat ksu_handle_faccessat ksu_handle_input_handle_event; do
         grep -qE " [Tt] $symbol$" "$LOG_DIR/ksu-symbols.txt" || die "Missing built-in KSU symbol: $symbol"

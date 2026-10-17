@@ -53,12 +53,15 @@ Hook 根据固定 legacy 的真实函数签名接入，避免直接套用旧文�
 
 - 编译前执行 Bash 语法检查、ShellCheck、源码提交校验和 `git apply --check`。
 - `olddefconfig` 后核对 `CONFIG_KSU=y`、手动 Hook、SELinux、OverlayFS、Kallsyms 等实际配置，防止配置被依赖条件静默取消。
+- 并行编译前先执行上游 Kbuild 的兼容补丁阶段，提前完成 `path_umount`、seccomp 和 SELinux 等回移，避免源码/共享头文件在部分对象编译完毕后才被修改。完整源码差异保存为 `ksu-effective-source.patch`。
 - `Image.gz` 生成后检查 gzip 完整性，并在 `vmlinux` 中检查 KSU 初始化、管理器通信和各手动 Hook 的符号。
 - 每次从固定提交导出干净的 AnyKernel3 模板，校验设备检查与安装入口；压缩后再检查 ZIP 完整性、内部镜像与编译镜像的 SHA-256 一致性。
 - 使用分离的工具链缓存和 3 GiB ccache；编译失败后也尝试保存 ccache，避免下一次全部重编。
 - 无论成功或失败，都上传 `Cannon-diagnostics-<run_id>-<attempt>`，包含完整准备/编译日志、最终配置和可用的符号检查结果。
 
 之前日志中的 `make: *** ... Error 2` 是汇总错误。实际失败原因是 `KernelSU-Next: No hooks were defined`：原脚本未提供适配的手动 Hook。日志检索应优先查看 `No hooks`、`error:`、`fatal:` 和 `undefined reference` 等信息。
+
+完整链接验证还暴露了 `undefined symbol: path_umount`：上游驱动 Kbuild 的自动回移晚于 `fs/namespace.o` 编译。提前执行兼容阶段后，再启动内核编译，消除这一并发时序问题。
 
 ## 产物
 
