@@ -7,24 +7,29 @@
 ## 使用 GitHub Actions
 
 1. 打开仓库的 **Actions → Cannon KernelSU-Next → Run workflow**。
-2. `build_stock=false`：只编译需要的 KernelSU-Next 版本，减少等待。设为 `true` 时先额外构建未集成 KSU 的版本。
-3. `publish_release=true`：验证成功后创建 GitHub Release。设为 `false` 时仍可从该次运行的 Artifacts 下载产物。
-4. 构建完成后，下载 `Cannon-KernelSU-Next-legacy-built-in-by-GinHalion.zip` 和配套 `KernelSU-Next-Manager-v3.4.2.apk`。
+2. `ksu_source=latest`（默认）：每次构建自动获取官方 `legacy` 最新提交、`next` 安装脚本，以及 GitHub 最新正式 Release 中的标准签名管理器 APK。`pinned` 使用之前已验证的固定驱动与 v3.4.2 管理器，便于回退。
+3. `build_stock=false`：只编译需要的 KernelSU-Next 版本，减少等待。设为 `true` 时先额外构建未集成 KSU 的版本。
+4. `publish_release=true`：验证成功后创建 GitHub Release。设为 `false` 时仍可从该次运行的 Artifacts 下载产物。
+5. 构建完成后，下载 `Cannon-KernelSU-Next-legacy-built-in-by-GinHalion.zip` 和该次 Release 配套的 `KernelSU-Next-Manager-<版本>.apk`。
 
 工作流默认只由手动操作触发；推送代码不会自动开始耗时的内核构建。仓库需要允许工作流的 `GITHUB_TOKEN` 写入 Release，工作流已声明 `contents: write`。
 
 ## 版本及配置
 
-所有源码提交、工具链下载位置和管理器 APK 的 SHA-256 都放在 [sources.env](sources.env)。本次检查采用：
+设备内核、工具链和回退配置放在 [sources.env](sources.env)。默认自动更新范围仅为 KernelSU-Next 驱动、安装脚本和管理器；设备内核与工具链保持已验证配置：
 
-| 组成 | 固定版本 |
+| 组成 | 默认选择 |
 | --- | --- |
 | 内核 | `GinHalion/android_kernel_xiaomi_cannon`，`264a38bb945bbcc00fdeece291ea21c122ce9363` |
 | defconfig | `arch/arm64/configs/cannon_defconfig` |
-| KernelSU-Next legacy | `d51ca52c6d370d8e9d62aabde10e41f17ff3ae94` |
+| KernelSU-Next 驱动 | 官方 `legacy` 分支最新提交；回退模式为 `d51ca52c6d370d8e9d62aabde10e41f17ff3ae94` |
 | AnyKernel3 cannon | `e8ec21bd3fc36e4c638486567536bb1ce7de3b77` |
 | 编译器 | Android Clang r450784d / 14.0.6，配 Android GCC 4.9 binutils |
-| 管理器 | 官方 KernelSU-Next v3.4.2 / 33355，标准签名版 |
+| 管理器 | 官方最新正式 Release 的标准签名版；回退模式为 v3.4.2 / 33355 |
+
+`latest` 是“每次触发时选择最新版”，不是在同一次构建中反复换版本。准备阶段把分支解析为实际 SHA、记录 APK URL 与官方资产 SHA-256，并生成 `resolved-sources.env/json`；本轮后续步骤只使用这份快照。上游在编译期间推送新提交，不会改变本轮源码。
+
+驱动和管理器分别更新，最新版不一定彼此适配。解析阶段检查双方 UAPI 是否相同；驱动 Kbuild 准备完成后检查版本号是否达到管理器的最低要求。正式版中不存在唯一标准 APK、官方校验值缺失、接口格式改变或 UAPI 不同，都会明确失败，不会静默选用其他分支或旧版。`pinned` 同样保留兼容检查。
 
 官方非 GKI 集成命令如下：
 
@@ -32,7 +37,7 @@
 curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 ```
 
-`next` 指安装脚本所在分支，`legacy` 指安装脚本选择的驱动版本。为避免上游分支变化导致不可复现，项目下载已检查提交中的同一安装脚本，并传入固定的 legacy 提交；执行后再次核对实际检出的 SHA。
+`next` 指安装脚本位置，`legacy` 指驱动分支。项目默认解析本轮最新提交，再下载该提交中的安装脚本并传入本轮已解析的 legacy SHA；执行后再次核对实际检出的 SHA。GitHub 分支 API 会处理上游分支更名的重定向。
 
 当前 legacy 动态 Kprobes Hook 的说明不建议在 5.10 以下使用，Syscall Table Hook 要求至少 4.17。因此这个 4.14 项目采用手动 Hook，不会强制开启不适配的动态 Hook。
 
@@ -47,11 +52,11 @@ curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/ke
 | `kernel/reboot.c` | 管理器与驱动之间的 supercall 通信 |
 | `drivers/input/input.c` | 音量减键事件，用于 KernelSU 安全模式 |
 
-Hook 根据固定 legacy 的真实函数签名接入，避免直接套用旧文档中已经发生变化的接口。更新内核或 KernelSU 提交时，必须重新检查补丁能否应用、接口是否兼容，以及设备能否启动。
+Hook 根据已经验证的 legacy 接口接入，避免直接套用旧文档。上游升级后仍可能改变接口；自动解析、编译、符号检查不能代替每个新版本的真机测试。
 
 ## 构建检查与故障排查
 
-- 编译前执行 Bash 语法检查、ShellCheck、源码提交校验和 `git apply --check`。
+- 编译前执行 Bash 语法检查、ShellCheck、版本解析测试、UAPI/最低版本检查、源码提交校验和 `git apply --check`。
 - `olddefconfig` 后核对 `CONFIG_KSU=y`、手动 Hook、SELinux、OverlayFS、Kallsyms 等实际配置，防止配置被依赖条件静默取消。
 - 并行编译前先执行上游 Kbuild 的兼容补丁阶段，提前完成 `path_umount`、seccomp 和 SELinux 等回移，避免源码/共享头文件在部分对象编译完毕后才被修改。完整源码差异保存为 `ksu-effective-source.patch`。
 - `Image.gz` 生成后检查 gzip 完整性，并在 `vmlinux` 中检查 KSU 初始化、管理器通信和各手动 Hook 的符号。
@@ -65,7 +70,7 @@ Hook 根据固定 legacy 的真实函数签名接入，避免直接套用旧文�
 
 ## 产物
 
-Release / 成功运行的 Artifact 包含内核 ZIP、配套管理器 APK、`SHA256SUMS`、`sources.env`、手动 Hook 补丁和构建信息。启用 `build_stock` 后，额外提供 `Cannon-Stock-by-GinHalion.zip`。
+Release / 成功运行的 Artifact 包含内核 ZIP、配套管理器 APK、`SHA256SUMS`、`sources.env`、`resolved-sources.env/json`、手动 Hook 补丁和构建信息。实际驱动提交、管理器版本及校验值以该次构建的解析快照为准。启用 `build_stock` 后，额外提供 `Cannon-Stock-by-GinHalion.zip`。
 
 ```bash
 # 在产物目录中核验下载完整性
@@ -84,6 +89,8 @@ bash scripts/prepare.sh
 bash build.sh stock
 bash build.sh ksu
 ```
+
+需要回退模式时，在新的工作目录执行 `KSU_SOURCE_MODE=pinned bash scripts/prepare.sh`，后续 `bash build.sh ksu` 自动读取已保存的版本快照。GitHub API 访问受限时可为准备步骤提供具有公开仓库读取权限的 `GH_TOKEN`，Actions 已自动提供。
 
 默认工作目录为 `work/`，产物位于 `dist/`；可通过 `WORK_DIR`、`DIST_DIR`、`CCACHE_DIR`、`JOBS` 覆盖。源码或输出目录已存在时脚本会停止，重新构建请选择新的工作/产物目录，避免覆盖已有构建。
 

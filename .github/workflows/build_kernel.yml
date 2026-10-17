@@ -3,6 +3,14 @@ name: Cannon KernelSU-Next
 on:
   workflow_dispatch:
     inputs:
+      ksu_source:
+        description: Latest official legacy + stable Manager, or known-good pinned versions
+        required: true
+        type: choice
+        default: latest
+        options:
+          - latest
+          - pinned
       build_stock:
         description: Also build the unmodified stock kernel
         required: true
@@ -31,6 +39,7 @@ jobs:
       WORK_DIR: ${{ github.workspace }}/work
       DIST_DIR: ${{ github.workspace }}/dist
       CCACHE_DIR: ${{ github.workspace }}/work/.ccache
+      KSU_SOURCE_MODE: ${{ inputs.ksu_source }}
     defaults:
       run:
         shell: bash
@@ -52,6 +61,7 @@ jobs:
         run: |
           for script in build.sh scripts/*.sh; do bash -n "$script"; done
           shellcheck -x -P SCRIPTDIR build.sh scripts/common.sh scripts/prepare.sh
+          python3 -m unittest discover -s tests -v
 
       - name: Restore toolchains
         id: toolchains
@@ -59,6 +69,8 @@ jobs:
         with:
           path: ${{ env.WORK_DIR }}/toolchains
           key: cannon-toolchains-${{ runner.os }}-${{ runner.arch }}-v3-${{ hashFiles('sources.env', 'scripts/prepare.sh') }}
+          restore-keys: |
+            cannon-toolchains-${{ runner.os }}-${{ runner.arch }}-v3-
 
       - name: Restore compiler cache
         id: ccache
@@ -68,8 +80,11 @@ jobs:
           key: cannon-ccache-${{ runner.os }}-${{ hashFiles('sources.env') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             cannon-ccache-${{ runner.os }}-${{ hashFiles('sources.env') }}-
+            cannon-ccache-${{ runner.os }}-
 
-      - name: Prepare pinned sources and toolchains
+      - name: Resolve KSU versions and prepare sources/toolchains
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/prepare.sh 2>&1 | tee prepare.log
 
       - name: Save toolchains
@@ -94,17 +109,20 @@ jobs:
           cp patches/cannon-ksu-manual-hooks.patch dist/manual-hooks.patch
           (
             cd dist
-            sha256sum -- *.zip *.apk *-build-info.txt sources.env manual-hooks.patch > SHA256SUMS
+            sha256sum -- *.zip *.apk *-build-info.txt sources.env resolved-sources.env resolved-sources.json manual-hooks.patch > SHA256SUMS
             sha256sum --check SHA256SUMS
           )
           tag="cannon-$(date -u +'%Y%m%d-%H%M%S')-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          source dist/resolved-sources.env
           {
             echo 'Redmi Note 9 5G (cannon/cannong), Linux 4.14.336'
             echo
             echo 'KernelSU-Next legacy: CONFIG_KSU=y, manual hooks, built into Image.gz (not LKM).'
-            echo 'Manager: official KernelSU-Next v3.4.2; APK SHA-256 verified before build.'
-            echo 'Includes pinned sources, the hook patch, build metadata, and SHA256SUMS.'
+            echo "Source mode: $KSU_SOURCE_MODE. Driver commit: $KSU_COMMIT."
+            echo "Manager: official KernelSU-Next $MANAGER_VERSION; APK SHA-256 verified before build."
+            echo "Driver/Manager UAPI: $KSU_UAPI_VERSION / $MANAGER_UAPI_VERSION."
+            echo 'Includes resolved source snapshots, the hook patch, build metadata, and SHA256SUMS.'
             echo 'Build verification does not replace testing on the target ROM. Back up the original boot image before flashing.'
             echo
             cat dist/ksu-build-info.txt
@@ -123,6 +141,8 @@ jobs:
             dist/*-build-info.txt
             dist/SHA256SUMS
             dist/sources.env
+            dist/resolved-sources.env
+            dist/resolved-sources.json
             dist/manual-hooks.patch
             dist/release-notes.txt
 
@@ -137,7 +157,8 @@ jobs:
             --title "Cannon KernelSU-Next legacy - $RELEASE_TAG" \
             --notes-file dist/release-notes.txt \
             dist/*.zip dist/*.apk dist/*-build-info.txt \
-            dist/SHA256SUMS dist/sources.env dist/manual-hooks.patch
+            dist/SHA256SUMS dist/sources.env dist/resolved-sources.env \
+            dist/resolved-sources.json dist/manual-hooks.patch
 
       - name: Save compiler cache even after a failed build
         if: always() && steps.ccache.outcome == 'success'
@@ -157,4 +178,5 @@ jobs:
           path: |
             prepare.log
             dist/logs/
+            dist/resolved-sources.*
             ${{ env.WORK_DIR }}/out-*/.config

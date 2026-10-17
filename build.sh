@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 # shellcheck source=scripts/common.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/scripts/common.sh"
+[[ -f $WORK_DIR/resolved-sources.env ]] || die 'Run scripts/prepare.sh before building'
 
 VARIANT=${1:-ksu}
 [[ $VARIANT == ksu || $VARIANT == stock ]] || die 'Usage: bash build.sh [ksu|stock]'
@@ -27,8 +28,8 @@ make_args=(
 
 if [[ $VARIANT == ksu ]]; then
     assert_commit "$KERNEL_DIR/KernelSU-Next" "$KSU_COMMIT"
-    # Equivalent to the official next installer with legacy selected, pinned to
-    # the reviewed legacy commit. Verify checkout because setup.sh can fall back.
+    # Select the snapshot resolved for this run, even if legacy moves mid-build.
+    # Verify checkout because upstream setup.sh can fall back to another branch.
     (cd "$KERNEL_DIR" && bash "$WORK_DIR/ksu-setup.sh" "$KSU_COMMIT") 2>&1 | tee "$LOG_DIR/ksu-setup.log"
     assert_commit "$KERNEL_DIR/KernelSU-Next" "$KSU_COMMIT"
     [[ -L $KERNEL_DIR/drivers/kernelsu ]] || die 'KernelSU driver link was not created'
@@ -69,6 +70,9 @@ if [[ $VARIANT == ksu ]]; then
         2>&1 | tee "$LOG_DIR/ksu-backports.log"
     grep -q '^int path_umount(' "$KERNEL_DIR/fs/namespace.c" || die 'path_umount backport was not applied'
     grep -q 'atomic_t filter_count;' "$KERNEL_DIR/include/linux/seccomp.h" || die 'seccomp backport was not applied'
+    DRIVER_VERSION=$(sed -n 's/^-- KernelSU-Next version: \([0-9][0-9]*\)$/\1/p' "$LOG_DIR/ksu-backports.log" | tail -1)
+    [[ $DRIVER_VERSION =~ ^[0-9]+$ ]] || die 'Cannot determine driver version from upstream Kbuild'
+    (( DRIVER_VERSION >= MANAGER_MIN_KERNEL_VERSION )) || die "Manager requires driver >= $MANAGER_MIN_KERNEL_VERSION, got $DRIVER_VERSION"
     git -C "$KERNEL_DIR" diff --binary > "$LOG_DIR/ksu-effective-source.patch"
 fi
 
@@ -109,7 +113,11 @@ sed -i "s/^kernel.string=.*/kernel.string=$NAME/" "$STAGE/anykernel.sh"
     printf 'device=cannon,cannong\nvariant=%s\n' "$VARIANT"
     printf 'integration=%s\n' "$([[ $VARIANT == ksu ]] && echo built-in-manual || echo stock)"
     printf 'kernel=%s\nanykernel=%s\n' "$KERNEL_COMMIT" "$ANYKERNEL_COMMIT"
-    if [[ $VARIANT == ksu ]]; then printf 'kernelsu_next=%s\n' "$KSU_COMMIT"; fi
+    if [[ $VARIANT == ksu ]]; then
+        printf 'kernelsu_next=%s\nsource_mode=%s\n' "$KSU_COMMIT" "$KSU_SOURCE_MODE"
+        printf 'driver_version=%s\nmanager=%s\nuapi=%s\n' "$DRIVER_VERSION" "$MANAGER_VERSION" "$KSU_UAPI_VERSION"
+        printf 'manager_sha256=%s\n' "$MANAGER_SHA256"
+    fi
     printf 'build_repository_commit=%s\n' "$(git -C "$PROJECT_DIR" rev-parse HEAD)"
     printf 'clang=%s\n' "$(clang --version | sed -n '1p')"
     printf 'image_sha256=%s\n' "$(sha256sum "$IMAGE" | cut -d ' ' -f 1)"

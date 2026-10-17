@@ -11,6 +11,10 @@ export KERNEL_DIR="$WORK_DIR/kernel"
 export TOOLCHAIN_DIR="$WORK_DIR/toolchains"
 LOG_DIR="$DIST_DIR/logs"
 mkdir -p "$WORK_DIR" "$DIST_DIR" "$LOG_DIR"
+if [[ -f $WORK_DIR/resolved-sources.env ]]; then
+    # shellcheck source=/dev/null
+    source "$WORK_DIR/resolved-sources.env"
+fi
 
 die() {
     printf 'ERROR: %s\n' "$*" >&2
