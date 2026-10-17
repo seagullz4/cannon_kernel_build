@@ -1,4 +1,4 @@
-# Redmi Note 9 5G / Cannon KernelSU-Next
+# Redmi Note 9 5G / Cannon KernelSU-Next / AnyKernel3包
 
 使用 GitHub Actions 为 Redmi Note 9 5G（`cannon`）编译 Linux 4.14.336 内核，并通过设备专用 AnyKernel3 模板生成刷机 ZIP。模板同时保留上游的 `cannong` 设备别名检查。
 
